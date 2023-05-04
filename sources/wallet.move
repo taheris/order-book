@@ -28,11 +28,6 @@ module order_book::wallet {
         UserCap { id: object::new(ctx) }
     }
 
-    #[test_only]
-    public fun new_test_user(ctx: &mut TxContext): UserCap {
-        new_user(ctx)
-    }
-
     /// Generate a `UserId` from a `UserCap`.
     public(friend) fun user_id(cap: &UserCap): UserId {
         UserId { id: object::uid_to_inner(&cap.id) }
@@ -102,20 +97,18 @@ module order_book::wallet {
     }
 
     /// Returns the locked balance for a user.
-    public fun locked_balance<Coin>(user_cap: &UserCap, wallets: &Wallets<Coin>): u64 {
-        let user = user_id(user_cap);
-        assert!(table::contains(&wallets.locked, *&user), EWalletNotFound);
+    public fun locked_balance<Coin>(wallets: &Wallets<Coin>, user: &UserId): u64 {
+        assert!(table::contains(&wallets.locked, *user), EWalletNotFound);
 
-        let locked = table::borrow(&wallets.locked, user);
+        let locked = table::borrow(&wallets.locked, *user);
         balance::value(&locked.balance)
     }
 
     /// Returns the unlocked balance for a user.
-    public fun unlocked_balance<Coin>(user_cap: &UserCap, wallets: &Wallets<Coin>): u64 {
-        let user = user_id(user_cap);
-        assert!(table::contains(&wallets.unlocked, *&user), EWalletNotFound);
+    public fun unlocked_balance<Coin>(wallets: &Wallets<Coin>, user: &UserId): u64 {
+        assert!(table::contains(&wallets.unlocked, *user), EWalletNotFound);
 
-        let unlocked = table::borrow(&wallets.unlocked, user);
+        let unlocked = table::borrow(&wallets.unlocked, *user);
         balance::value(&unlocked.balance)
     }
 
@@ -179,6 +172,13 @@ module order_book::wallet {
     use sui::test_utils::{assert_eq, destroy};
 
     #[test_only]
+    public fun new_test_user(ctx: &mut TxContext): (UserCap, UserId) {
+        let user_cap = new_user(ctx);
+        let user_id = user_id(&user_cap);
+        (user_cap, user_id)
+    }
+
+    #[test_only]
     public(friend) fun new_test_wallet<Coin, Kind>(balance: u64): Wallet<Coin, Kind> {
         Wallet<Coin, Kind> { balance: balance::create_for_testing(balance) }
     }
@@ -189,35 +189,35 @@ module order_book::wallet {
         let ctx = test::ctx(&mut scenario);
         let wallets = new_wallets<SUI>(ctx);
 
-        let user1 = new_test_user(ctx);
-        init_user_wallets(&user1, &mut wallets);
+        let (user1_cap, user1_id) = new_test_user(ctx);
+        init_user_wallets(&user1_cap, &mut wallets);
 
         let locked1 = new_test_wallet<SUI, Locked>(0);
         let unlocked1 = new_test_wallet<SUI, Unlocked>(100);
         assert_eq(balance(&locked1), 0);
         assert_eq(balance(&unlocked1), 100);
 
-        deposit_locked(&user1, &mut wallets, locked1);
-        deposit_unlocked(&user1, &mut wallets, unlocked1);
-        assert_eq(locked_balance(&user1, &wallets), 0);
-        assert_eq(unlocked_balance(&user1, &wallets), 100);
+        deposit_locked(&user1_cap, &mut wallets, locked1);
+        deposit_unlocked(&user1_cap, &mut wallets, unlocked1);
+        assert_eq(locked_balance(&wallets, &user1_id), 0);
+        assert_eq(unlocked_balance(&wallets, &user1_id), 100);
 
-        let withdrawal = withdraw_unlocked(&user1, &mut wallets, 10);
+        let withdrawal = withdraw_unlocked(&user1_cap, &mut wallets, 10);
         let withdrawal = swap<SUI, Unlocked, Locked>(withdrawal);
-        deposit_locked(&user1, &mut wallets, withdrawal);
-        assert_eq(locked_balance(&user1, &wallets), 10);
-        assert_eq(unlocked_balance(&user1, &wallets), 90);
+        deposit_locked(&user1_cap, &mut wallets, withdrawal);
+        assert_eq(locked_balance(&wallets, &user1_id), 10);
+        assert_eq(unlocked_balance(&wallets, &user1_id), 90);
 
         test::next_tx(&mut scenario, @0x2);
-        let user2 = new_test_user(test::ctx(&mut scenario));
-        init_user_wallets(&user2, &mut wallets);
+        let (user2_cap, user2_id) = new_test_user(test::ctx(&mut scenario));
+        init_user_wallets(&user2_cap, &mut wallets);
 
         let unlocked2 = new_test_wallet<SUI, Unlocked>(200);
-        deposit_unlocked(&user2, &mut wallets, unlocked2);
-        assert_eq(unlocked_balance(&user2, &wallets), 200);
+        deposit_unlocked(&user2_cap, &mut wallets, unlocked2);
+        assert_eq(unlocked_balance(&wallets, &user2_id), 200);
 
-        destroy(user1);
-        destroy(user2);
+        destroy(user1_cap);
+        destroy(user2_cap);
         destroy(wallets);
         test::end(scenario);
     }
@@ -229,16 +229,16 @@ module order_book::wallet {
         let ctx = test::ctx(&mut scenario);
         let wallets = new_wallets<SUI>(ctx);
 
-        let user = new_test_user(ctx);
-        init_user_wallets(&user, &mut wallets);
+        let (user_cap, _user_id) = new_test_user(ctx);
+        init_user_wallets(&user_cap, &mut wallets);
 
         let locked = Wallet<SUI, Locked> { balance: balance::create_for_testing(100) };
-        deposit_locked(&user, &mut wallets, locked);
+        deposit_locked(&user_cap, &mut wallets, locked);
 
-        let attempt = withdraw_locked(&user, &mut wallets, 200);
+        let attempt = withdraw_locked(&user_cap, &mut wallets, 200);
 
         destroy(attempt);
-        destroy(user);
+        destroy(user_cap);
         destroy(wallets);
         test::end(scenario);
     }

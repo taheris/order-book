@@ -6,10 +6,6 @@ module order_book::book {
     use order_book::order::{Self, Ask, Bid, Order, Orders};
     use order_book::wallet::{Self, Locked, Unlocked, Wallet, Wallets};
 
-    struct BookId has store {
-        id: UID
-    }
-
     /// An order book for swapping between Base and Quote asset pairs.
     struct Book<phantom Base, phantom Quote> has key, store {
         id: UID,
@@ -180,17 +176,17 @@ module order_book::book {
         usd_balance: u64,
         eur_balance: u64,
         ctx: &mut TxContext
-    ): wallet::UserCap {
-        let user = wallet::new_test_user(ctx);
-        wallet::init_user_wallets<USD>(&user, &mut book.base_wallets);
-        wallet::init_user_wallets<EUR>(&user, &mut book.quote_wallets);
+    ): (wallet::UserCap, wallet::UserId) {
+        let (user_cap, user_id) = wallet::new_test_user(ctx);
+        wallet::init_user_wallets<USD>(&user_cap, &mut book.base_wallets);
+        wallet::init_user_wallets<EUR>(&user_cap, &mut book.quote_wallets);
 
         let usd = wallet::new_test_wallet<USD, Unlocked>(usd_balance);
         let eur = wallet::new_test_wallet<EUR, Unlocked>(eur_balance);
-        wallet::deposit_unlocked(&user, &mut book.base_wallets, usd);
-        wallet::deposit_unlocked(&user, &mut book.quote_wallets, eur);
+        wallet::deposit_unlocked(&user_cap, &mut book.base_wallets, usd);
+        wallet::deposit_unlocked(&user_cap, &mut book.quote_wallets, eur);
 
-        user
+        (user_cap, user_id)
     }
 
     #[test]
@@ -202,61 +198,39 @@ module order_book::book {
         assert_eq(vector::length(order::ticks(&book.bids)), 0);
         assert_eq(vector::length(order::ticks(&book.asks)), 0);
 
-        {
-            // user 1 has 1000 USD and places a bid for 10 EUR at a price of 3 USD/EUR
-            let user1 = new_test_user(&mut book, 1000, 0, ctx);
-            place_bid(&mut book, order::new_order<Bid>(user1, 3, 10));
-            assert_eq(vector::length(order::ticks(&book.bids)), 1);
-            assert_eq(vector::length(order::ticks(&book.asks)), 0);
-        };
+        let (user1_cap, user1_id) = new_test_user(&mut book, 1000, 0, ctx);
 
-        {
-            // user 1 should now have 30 USD locked, and 970 USD unlocked
-            let bids0 = vector::borrow(order::ticks(&book.bids), 0);
-            let bid0 = vector::borrow(order::orders(bids0), 0);
-            let user1 = order::user_cap(bid0);
+        // user 1 has 1000 USD and places a bid for 10 EUR at a price of 3 USD/EUR
+        place_bid(&mut book, order::new_order<Bid>(user1_cap, 3, 10));
+        assert_eq(vector::length(order::ticks(&book.bids)), 1);
+        assert_eq(vector::length(order::ticks(&book.asks)), 0);
 
-            assert_eq(wallet::locked_balance(user1, &book.base_wallets), 30);
-            assert_eq(wallet::unlocked_balance(user1, &book.base_wallets), 970);
-            assert_eq(wallet::locked_balance(user1, &book.quote_wallets), 0);
-            assert_eq(wallet::unlocked_balance(user1, &book.quote_wallets), 0);
-        };
+        // user 1 should now have 30 USD locked, and 970 USD unlocked
+        assert_eq(wallet::locked_balance(&book.base_wallets, &user1_id), 30);
+        assert_eq(wallet::unlocked_balance(&book.base_wallets, &user1_id), 970);
+        assert_eq(wallet::locked_balance(&book.quote_wallets, &user1_id), 0);
+        assert_eq(wallet::unlocked_balance(&book.quote_wallets, &user1_id), 0);
 
         test::next_tx(&mut scenario, @0x2);
         let ctx = test::ctx(&mut scenario);
+        let (user2_cap, user2_id) = new_test_user(&mut book, 0, 500, ctx);
 
-        {
-            // user 2 has 500 EUR places an ask for 15 USD at a price of 3 USD/EUR
-            let user2 = new_test_user(&mut book, 0, 500, ctx);
-            place_ask(&mut book, order::new_order<Ask>(user2, 3, 5));
-            assert_eq(vector::length(order::ticks(&book.bids)), 1);
-            assert_eq(vector::length(order::ticks(&book.asks)), 1);
-        };
+        // user 2 has 500 EUR and places an ask for 15 USD at a price of 3 USD/EUR
+        place_ask(&mut book, order::new_order<Ask>(user2_cap, 3, 5));
+        assert_eq(vector::length(order::ticks(&book.bids)), 1);
+        assert_eq(vector::length(order::ticks(&book.asks)), 1);
 
-        {
-            // user 2 should now have 495 EUR unlocked, and 15 USD unlocked
-            let asks0 = vector::borrow(order::ticks(&book.asks), 0);
-            let ask0 = vector::borrow(order::orders(asks0), 0);
-            let user2 = order::user_cap(ask0);
+        // user 2 should now have 495 EUR unlocked, and 15 USD unlocked
+        assert_eq(wallet::locked_balance(&book.base_wallets, &user2_id), 0);
+        assert_eq(wallet::unlocked_balance(&book.base_wallets, &user2_id), 15);
+        assert_eq(wallet::locked_balance(&book.quote_wallets, &user2_id), 0);
+        assert_eq(wallet::unlocked_balance(&book.quote_wallets, &user2_id), 495);
 
-            assert_eq(wallet::locked_balance(user2, &book.base_wallets), 0);
-            assert_eq(wallet::unlocked_balance(user2, &book.base_wallets), 15);
-            assert_eq(wallet::locked_balance(user2, &book.quote_wallets), 0);
-            assert_eq(wallet::unlocked_balance(user2, &book.quote_wallets), 495);
-
-        };
-
-        {
-            // user 1 should now have 15 USD locked, 970 USD unlocked, and 5 EUR unlocked
-            let bids0 = vector::borrow(order::ticks(&book.bids), 0);
-            let bid0 = vector::borrow(order::orders(bids0), 0);
-            let user1 = order::user_cap(bid0);
-
-            assert_eq(wallet::locked_balance(user1, &book.base_wallets), 15);
-            assert_eq(wallet::unlocked_balance(user1, &book.base_wallets), 970);
-            assert_eq(wallet::locked_balance(user1, &book.quote_wallets), 0);
-            assert_eq(wallet::unlocked_balance(user1, &book.quote_wallets), 5);
-        };
+        // user 1 should now have 15 USD locked, 970 USD unlocked, and 5 EUR unlocked
+        assert_eq(wallet::locked_balance(&book.base_wallets, &user1_id), 15);
+        assert_eq(wallet::unlocked_balance(&book.base_wallets, &user1_id), 970);
+        assert_eq(wallet::locked_balance(&book.quote_wallets, &user1_id), 0);
+        assert_eq(wallet::unlocked_balance(&book.quote_wallets, &user1_id), 5);
 
         destroy(book);
         test::end(scenario);

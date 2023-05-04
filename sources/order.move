@@ -103,8 +103,8 @@ module order_book::order {
         let ticks = ticks_mut(orders);
 
         if (search.is_match) {
-            let ticks = vector::borrow_mut(ticks, search.index);
-            vector::push_back(&mut ticks.orders, order);
+            let tick = vector::borrow_mut(ticks, search.index);
+            vector::push_back(&mut tick.orders, order);
             return
         };
 
@@ -187,11 +187,14 @@ module order_book::order {
         let orders = new_orders<Bid>();
         assert_eq(vector::length(&orders.ticks), 0);
 
+        let (user1, _) = new_test_user(ctx);
+        let (user2, _) = new_test_user(ctx);
+
         let price = 100;
-        add_order(&mut orders, new_order<Bid>(new_test_user(ctx), price, 10));
+        add_order(&mut orders, new_order<Bid>(user1, price, 10));
         assert_eq(vector::length(&orders.ticks), 1);
 
-        add_order(&mut orders, new_order<Bid>(new_test_user(ctx), price, 20));
+        add_order(&mut orders, new_order<Bid>(user2, price, 20));
         assert_eq(vector::length(&orders.ticks), 1);
 
         let tick = vector::borrow(&orders.ticks, 0);
@@ -217,25 +220,30 @@ module order_book::order {
         let orders = new_orders<Bid>();
         assert_eq(binary_search(&mut orders, 0), search_empty());
 
-        add_order(&mut orders, new_order<Bid>(new_test_user(ctx), 40, 4));
+        let (user1, _) = new_test_user(ctx);
+        let (user2, _) = new_test_user(ctx);
+        let (user3, _) = new_test_user(ctx);
+        let (user4, _) = new_test_user(ctx);
+
+        add_order(&mut orders, new_order<Bid>(user1, 40, 4));
         assert_eq(binary_search(&mut orders, 40), search_match(0));
         assert_eq(binary_search(&mut orders, 35), search_before(0));
         assert_eq(binary_search(&mut orders, 50), search_after(0));
 
-        add_order(&mut orders, new_order<Bid>(new_test_user(ctx), 50, 5));
+        add_order(&mut orders, new_order<Bid>(user2, 50, 5));
         assert_eq(binary_search(&mut orders, 50), search_match(1));
         assert_eq(binary_search(&mut orders, 35), search_before(0));
         assert_eq(binary_search(&mut orders, 45), search_after(0));
         assert_eq(binary_search(&mut orders, 55), search_after(1));
 
-        add_order(&mut orders, new_order<Bid>(new_test_user(ctx), 20, 2));
+        add_order(&mut orders, new_order<Bid>(user3, 20, 2));
         assert_eq(binary_search(&mut orders, 20), search_match(0));
         assert_eq(binary_search(&mut orders, 15), search_before(0));
         assert_eq(binary_search(&mut orders, 35), search_after(0));
         assert_eq(binary_search(&mut orders, 45), search_before(2));
         assert_eq(binary_search(&mut orders, 55), search_after(2));
 
-        add_order(&mut orders, new_order<Bid>(new_test_user(ctx), 30, 3));
+        add_order(&mut orders, new_order<Bid>(user4, 30, 3));
         assert_eq(binary_search(&mut orders, 30), search_match(1));
         assert_eq(binary_search(&mut orders, 15), search_before(0));
         assert_eq(binary_search(&mut orders, 25), search_after(0));
