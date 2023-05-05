@@ -3,15 +3,15 @@ module order_book::book {
     use sui::object::{Self, UID};
     use sui::tx_context::TxContext;
 
-    use order_book::order::{Self, Ask, Bid, Order, Orders};
+    use order_book::order::{Self, Ask, Bid, Order, Ticks};
     use order_book::wallet::{Self, Locked, Unlocked, Wallet, Wallets};
 
     /// An order book for swapping between Base and Quote asset pairs.
     struct Book<phantom Base, phantom Quote> has key, store {
         id: UID,
 
-        bids: Orders<Bid>,
-        asks: Orders<Ask>,
+        bids: Ticks<Bid>,
+        asks: Ticks<Ask>,
 
         base_wallets: Wallets<Base>,
         quote_wallets: Wallets<Quote>,
@@ -22,8 +22,8 @@ module order_book::book {
         Book<Base, Quote> {
             id: object::new(ctx),
 
-            bids: order::new_orders(),
-            asks: order::new_orders(),
+            bids: order::new_ticks(),
+            asks: order::new_ticks(),
 
             base_wallets: wallet::new_wallets<Base>(ctx),
             quote_wallets: wallet::new_wallets<Quote>(ctx),

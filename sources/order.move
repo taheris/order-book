@@ -77,61 +77,61 @@ module order_book::order {
         &mut tick.orders
     }
 
-    /// `Orders` is a price-ordered list of `Tick` entries.
-    struct Orders<phantom Side> has store {
-        ticks: vector<Tick<Side>>,
+    /// `Ticks` is a price-ordered list of `Tick` entries.
+    struct Ticks<phantom Side> has store {
+        inner: vector<Tick<Side>>,
     }
 
-    /// Create a new `Orders` object.
-    public(friend) fun new_orders<Side>(): Orders<Side> {
-        Orders { ticks: vector::empty() }
+    /// Create a new `Ticks` object.
+    public(friend) fun new_ticks<Side>(): Ticks<Side> {
+        Ticks { inner: vector::empty() }
     }
 
-    /// Returns a reference to the ticks vector.
-    public fun ticks<Side>(orders: &Orders<Side>): &vector<Tick<Side>> {
-        &orders.ticks
+    /// Returns a reference to the inner ticks vector.
+    public fun ticks<Side>(ticks: &Ticks<Side>): &vector<Tick<Side>> {
+        &ticks.inner
     }
 
-    /// Returns a mutable reference to the ticks vector.
-    public(friend) fun ticks_mut<Side>(orders: &mut Orders<Side>): &mut vector<Tick<Side>> {
-        &mut orders.ticks
+    /// Returns a mutable reference to the inner ticks vector.
+    public(friend) fun ticks_mut<Side>(ticks: &mut Ticks<Side>): &mut vector<Tick<Side>> {
+        &mut ticks.inner
     }
 
     /// Add an order to an existing `Tick` at the same price, or a new `Tick` otherwise.
-    public(friend) fun add_order<Side>(orders: &mut Orders<Side>, order: Order<Side>) {
-        let search = binary_search(orders, order.price);
-        let ticks = ticks_mut(orders);
+    public(friend) fun add_order<Side>(ticks: &mut Ticks<Side>, order: Order<Side>) {
+        let search = binary_search(ticks, order.price);
+        let inner = ticks_mut(ticks);
 
         if (search.is_match) {
-            let tick = vector::borrow_mut(ticks, search.index);
+            let tick = vector::borrow_mut(inner, search.index);
             vector::push_back(&mut tick.orders, order);
             return
         };
 
         let tick = new_tick<Side>(order);
-        vector::push_back(ticks, tick);
+        vector::push_back(inner, tick);
         if (search.is_empty) return;
 
         // move the new order backwards from the end to the correct price position
-        let index = vector::length(ticks);
+        let index = vector::length(inner);
         let stop = if (search.is_before) { search.index + 1 } else { search.index + 2 };
         while (index > stop) {
-            vector::swap(ticks, index - 1, index - 2);
+            vector::swap(inner, index - 1, index - 2);
             index = index - 1;
         }
     }
 
-    /// Search a list of orders for some `target` price.
-    fun binary_search<Side>(orders: &Orders<Side>, target: u64): Search {
+    /// Search a list of ticks for some `target` price.
+    fun binary_search<Side>(ticks: &Ticks<Side>, target: u64): Search {
         let left = 0;
-        let right = vector::length(&orders.ticks);
+        let right = vector::length(&ticks.inner);
         let is_before = false;
 
         if (right == 0) return search_empty();
 
         while (left < right) {
             let mid = (left + right) / 2;
-            let price = vector::borrow(&orders.ticks, mid).price;
+            let price = vector::borrow(&ticks.inner, mid).price;
 
             if (price == target) {
                 return search_match(mid)
@@ -184,20 +184,20 @@ module order_book::order {
         let scenario = test::begin(@0x0);
         let ctx = test::ctx(&mut scenario);
 
-        let orders = new_orders<Bid>();
-        assert_eq(vector::length(&orders.ticks), 0);
+        let ticks = new_ticks<Bid>();
+        assert_eq(vector::length(&ticks.inner), 0);
 
         let (user1, _) = new_test_user(ctx);
         let (user2, _) = new_test_user(ctx);
 
         let price = 100;
-        add_order(&mut orders, new_order<Bid>(user1, price, 10));
-        assert_eq(vector::length(&orders.ticks), 1);
+        add_order(&mut ticks, new_order<Bid>(user1, price, 10));
+        assert_eq(vector::length(&ticks.inner), 1);
 
-        add_order(&mut orders, new_order<Bid>(user2, price, 20));
-        assert_eq(vector::length(&orders.ticks), 1);
+        add_order(&mut ticks, new_order<Bid>(user2, price, 20));
+        assert_eq(vector::length(&ticks.inner), 1);
 
-        let tick = vector::borrow(&orders.ticks, 0);
+        let tick = vector::borrow(&ticks.inner, 0);
         assert_eq(tick.price, price);
         assert_eq(vector::length(&tick.orders), 2);
 
@@ -208,7 +208,7 @@ module order_book::order {
         assert_eq(order1.price, price);
         assert_eq(order1.quantity, 20);
 
-        destroy(orders);
+        destroy(ticks);
         test::end(scenario);
     }
 
@@ -217,46 +217,46 @@ module order_book::order {
         let scenario = test::begin(@0x0);
         let ctx = test::ctx(&mut scenario);
 
-        let orders = new_orders<Bid>();
-        assert_eq(binary_search(&mut orders, 0), search_empty());
+        let ticks = new_ticks<Bid>();
+        assert_eq(binary_search(&mut ticks, 0), search_empty());
 
         let (user1, _) = new_test_user(ctx);
         let (user2, _) = new_test_user(ctx);
         let (user3, _) = new_test_user(ctx);
         let (user4, _) = new_test_user(ctx);
 
-        add_order(&mut orders, new_order<Bid>(user1, 40, 4));
-        assert_eq(binary_search(&mut orders, 40), search_match(0));
-        assert_eq(binary_search(&mut orders, 35), search_before(0));
-        assert_eq(binary_search(&mut orders, 50), search_after(0));
+        add_order(&mut ticks, new_order<Bid>(user1, 40, 4));
+        assert_eq(binary_search(&mut ticks, 40), search_match(0));
+        assert_eq(binary_search(&mut ticks, 35), search_before(0));
+        assert_eq(binary_search(&mut ticks, 50), search_after(0));
 
-        add_order(&mut orders, new_order<Bid>(user2, 50, 5));
-        assert_eq(binary_search(&mut orders, 50), search_match(1));
-        assert_eq(binary_search(&mut orders, 35), search_before(0));
-        assert_eq(binary_search(&mut orders, 45), search_after(0));
-        assert_eq(binary_search(&mut orders, 55), search_after(1));
+        add_order(&mut ticks, new_order<Bid>(user2, 50, 5));
+        assert_eq(binary_search(&mut ticks, 50), search_match(1));
+        assert_eq(binary_search(&mut ticks, 35), search_before(0));
+        assert_eq(binary_search(&mut ticks, 45), search_after(0));
+        assert_eq(binary_search(&mut ticks, 55), search_after(1));
 
-        add_order(&mut orders, new_order<Bid>(user3, 20, 2));
-        assert_eq(binary_search(&mut orders, 20), search_match(0));
-        assert_eq(binary_search(&mut orders, 15), search_before(0));
-        assert_eq(binary_search(&mut orders, 35), search_after(0));
-        assert_eq(binary_search(&mut orders, 45), search_before(2));
-        assert_eq(binary_search(&mut orders, 55), search_after(2));
+        add_order(&mut ticks, new_order<Bid>(user3, 20, 2));
+        assert_eq(binary_search(&mut ticks, 20), search_match(0));
+        assert_eq(binary_search(&mut ticks, 15), search_before(0));
+        assert_eq(binary_search(&mut ticks, 35), search_after(0));
+        assert_eq(binary_search(&mut ticks, 45), search_before(2));
+        assert_eq(binary_search(&mut ticks, 55), search_after(2));
 
-        add_order(&mut orders, new_order<Bid>(user4, 30, 3));
-        assert_eq(binary_search(&mut orders, 30), search_match(1));
-        assert_eq(binary_search(&mut orders, 15), search_before(0));
-        assert_eq(binary_search(&mut orders, 25), search_after(0));
-        assert_eq(binary_search(&mut orders, 35), search_after(1));
-        assert_eq(binary_search(&mut orders, 45), search_before(3));
-        assert_eq(binary_search(&mut orders, 55), search_after(3));
+        add_order(&mut ticks, new_order<Bid>(user4, 30, 3));
+        assert_eq(binary_search(&mut ticks, 30), search_match(1));
+        assert_eq(binary_search(&mut ticks, 15), search_before(0));
+        assert_eq(binary_search(&mut ticks, 25), search_after(0));
+        assert_eq(binary_search(&mut ticks, 35), search_after(1));
+        assert_eq(binary_search(&mut ticks, 45), search_before(3));
+        assert_eq(binary_search(&mut ticks, 55), search_after(3));
 
-        assert_eq(vector::borrow(&mut orders.ticks, 0).price, 20);
-        assert_eq(vector::borrow(&mut orders.ticks, 1).price, 30);
-        assert_eq(vector::borrow(&mut orders.ticks, 2).price, 40);
-        assert_eq(vector::borrow(&mut orders.ticks, 3).price, 50);
+        assert_eq(vector::borrow(&mut ticks.inner, 0).price, 20);
+        assert_eq(vector::borrow(&mut ticks.inner, 1).price, 30);
+        assert_eq(vector::borrow(&mut ticks.inner, 2).price, 40);
+        assert_eq(vector::borrow(&mut ticks.inner, 3).price, 50);
 
-        destroy(orders);
+        destroy(ticks);
         test::end(scenario);
     }
 }
